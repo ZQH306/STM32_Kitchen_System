@@ -1,0 +1,52 @@
+# ============================================
+# STM32 + Keil MDK-ARM 项目 .gitignore
+# ============================================
+
+# --- STM32CubeMX 项目文件 ---
+*.ioc
+.mxproject
+
+# --- Keil MDK-ARM 通用编译输出（必须不上传） ---
+# 所有编译生成的中间文件和可执行文件
+**/*.o
+**/*.d
+**/*.crf
+**/*.lst
+**/*.axf
+**/*.elf
+**/*.hex
+**/*.bin
+**/*.map
+**/*.htm
+**/*.sct
+**/*.lnp
+**/*.dep
+**/*.iex
+**/*.build_log.htm
+**/RTE/
+**/DebugConfig/
+
+# Keil 项目用户特定文件（个人设置，不上传）
+MDK-ARM/*.uvguix.*
+MDK-ARM/*.uvoptx
+MDK-ARM/EventRecorderStub.scvd
+**/startup_stm32f103xb.lst
+
+# --- 操作系统临时文件 ---
+.DS_Store
+Thumbs.db
+desktop.ini
+*.swp
+*.swo
+*~
+
+# --- 其他可能的临时文件 ---
+*.tmp
+*.temp
+*.bak
+*.cache
+
+# --- 项目说明 ---
+# MDK-ARM/*.uvprojx 是项目主文件，建议上传以便其他人能直接打开项目
+# 如果不需要上传，可以取消下面这行的注释
+# MDK-ARM/*.uvprojx

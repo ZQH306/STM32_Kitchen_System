@@ -1,0 +1,1149 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no, viewport-fit=cover">
+    <title>花花·智控中心 | 实时遥测 | 设备状态同步</title>
+    <!-- Font Awesome 6 图标库 -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0-beta3/css/all.min.css">
+    <!-- MQTT 客户端库 -->
+    <script src="https://unpkg.com/mqtt@4.3.7/dist/mqtt.min.js"></script>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            min-height: 100vh;
+            background: radial-gradient(circle at 20% 30%, #0a0f1e, #03060c);
+            font-family: 'Segoe UI', 'Poppins', 'Orbitron', 'SF Pro Display', system-ui, -apple-system, 'Roboto', sans-serif;
+            padding: 20px;
+            color: #eef5ff;
+            position: relative;
+        }
+
+        body::before {
+            content: "";
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background-image: 
+                linear-gradient(rgba(0, 255, 255, 0.03) 1px, transparent 1px),
+                linear-gradient(90deg, rgba(0, 255, 255, 0.03) 1px, transparent 1px);
+            background-size: 40px 40px;
+            pointer-events: none;
+            z-index: 0;
+        }
+
+        .dashboard {
+            max-width: 1400px;
+            margin: 0 auto;
+            position: relative;
+            z-index: 2;
+        }
+
+        /* 头部样式 */
+        .header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            flex-wrap: wrap;
+            gap: 15px;
+            margin-bottom: 30px;
+            padding: 15px 20px;
+            background: rgba(10, 20, 30, 0.55);
+            backdrop-filter: blur(12px);
+            border-radius: 2rem;
+            border: 1px solid rgba(0, 255, 255, 0.25);
+            box-shadow: 0 8px 20px rgba(0,0,0,0.3), 0 0 12px rgba(0, 230, 250, 0.2);
+        }
+        .title-area h1 {
+            font-size: 1.8rem;
+            letter-spacing: 2px;
+            font-weight: 600;
+            background: linear-gradient(135deg, #fff, #f0a3c2, #5bc0ff);
+            -webkit-background-clip: text;
+            background-clip: text;
+            color: transparent;
+            text-shadow: 0 0 8px rgba(255, 128, 192, 0.3);
+            display: inline-flex;
+            align-items: center;
+            gap: 12px;
+        }
+        .title-area h1 i {
+            background: none;
+            color: #ff99cc;
+            text-shadow: 0 0 6px #ff66aa;
+        }
+        .title-area p {
+            font-size: 0.75rem;
+            opacity: 0.8;
+            letter-spacing: 1px;
+            margin-top: 6px;
+            border-left: 2px solid #ff88bb;
+            padding-left: 10px;
+        }
+        .conn-status {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            background: rgba(0, 0, 0, 0.5);
+            padding: 8px 18px;
+            border-radius: 60px;
+            backdrop-filter: blur(4px);
+            border: 1px solid rgba(0, 255, 255, 0.4);
+        }
+        .led-status {
+            width: 12px;
+            height: 12px;
+            border-radius: 50%;
+            background-color: #ff4444;
+            box-shadow: 0 0 5px #ff4444;
+            transition: all 0.2s;
+        }
+        .led-status.connected {
+            background-color: #0f0;
+            box-shadow: 0 0 12px #0f0, 0 0 5px #0f0;
+        }
+        .status-text {
+            font-size: 0.85rem;
+            font-weight: 500;
+            font-family: monospace;
+        }
+        .hua-badge {
+            background: rgba(255, 140, 180, 0.2);
+            backdrop-filter: blur(4px);
+            border-radius: 40px;
+            padding: 5px 12px;
+            font-size: 0.7rem;
+            border: 1px solid rgba(255, 128, 192, 0.5);
+            margin-left: 8px;
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            font-weight: 500;
+        }
+        .hua-badge i {
+            color: #ff99cc;
+        }
+
+        /* 卡片通用样式 */
+        .card {
+            background: rgba(12, 22, 35, 0.65);
+            backdrop-filter: blur(16px);
+            border-radius: 2rem;
+            border: 1px solid rgba(0, 255, 255, 0.35);
+            box-shadow: 0 20px 35px -12px rgba(0,0,0,0.5), inset 0 1px 0 rgba(255,255,255,0.05);
+            transition: transform 0.2s ease, border-color 0.2s, box-shadow 0.1s;
+            padding: 1.2rem 1.5rem;
+            height: 100%;
+            display: flex;
+            flex-direction: column;
+        }
+        .card:hover {
+            border-color: rgba(0, 255, 255, 0.7);
+            box-shadow: 0 20px 35px -8px rgba(0, 200, 255, 0.2);
+        }
+
+        /* 传感器区域 3列自适应 */
+        .sensor-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+            gap: 24px;
+            margin-bottom: 40px;
+        }
+
+        .sensor-title {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            font-size: 1.2rem;
+            font-weight: 500;
+            letter-spacing: 1px;
+            border-bottom: 1px dashed rgba(0, 255, 255, 0.4);
+            padding-bottom: 10px;
+            margin-bottom: 20px;
+        }
+        .sensor-title i {
+            font-size: 1.6rem;
+            color: #0ff;
+            text-shadow: 0 0 4px cyan;
+        }
+        .data-value {
+            font-size: 2.8rem;
+            font-weight: 700;
+            font-family: 'Orbitron', 'Courier New', monospace;
+            letter-spacing: 2px;
+            background: linear-gradient(145deg, #f0f9ff, #b3f0ff);
+            -webkit-background-clip: text;
+            background-clip: text;
+            color: transparent;
+            text-shadow: 0 0 8px rgba(0,255,255,0.3);
+            margin: 8px 0;
+        }
+        .data-unit {
+            font-size: 1.1rem;
+            font-weight: 400;
+            margin-left: 6px;
+            color: #8ecfff;
+        }
+        .sub-info {
+            font-size: 0.7rem;
+            opacity: 0.7;
+            margin-top: auto;
+            padding-top: 12px;
+            font-family: monospace;
+            display: flex;
+            justify-content: space-between;
+            border-top: 1px dashed rgba(0,255,255,0.2);
+        }
+        .light-badge {
+            display: inline-block;
+            background: rgba(0,0,0,0.5);
+            border-radius: 40px;
+            padding: 4px 12px;
+            font-size: 0.75rem;
+        }
+
+        /* 震动专用样式 */
+        .vibration-status-area {
+            display: flex;
+            align-items: center;
+            gap: 16px;
+            margin: 12px 0 8px;
+            flex-wrap: wrap;
+        }
+        .shock-led {
+            width: 28px;
+            height: 28px;
+            border-radius: 50%;
+            background-color: #3a3f5e;
+            box-shadow: 0 0 8px rgba(0,0,0,0.4);
+            transition: all 0.15s ease;
+            flex-shrink: 0;
+        }
+        .shock-led.active {
+            background-color: #ff3366;
+            box-shadow: 0 0 16px #ff3366, 0 0 8px #ff6699;
+            animation: pulseRed 0.6s ease-out;
+        }
+        .shock-led.inactive {
+            background-color: #2ecc71;
+            box-shadow: 0 0 6px #2ecc71;
+        }
+        @keyframes pulseRed {
+            0% { transform: scale(0.95); opacity: 0.8; box-shadow: 0 0 0 0 rgba(255,51,102,0.7);}
+            70% { transform: scale(1.2); box-shadow: 0 0 0 12px rgba(255,51,102,0);}
+            100% { transform: scale(1); box-shadow: 0 0 0 0 rgba(255,51,102,0);}
+        }
+        .shock-status-text {
+            font-size: 2.2rem;
+            font-weight: 700;
+            font-family: 'Orbitron', monospace;
+            letter-spacing: 1px;
+            transition: color 0.2s;
+        }
+        .shock-status-text.warning {
+            color: #ff5577;
+            text-shadow: 0 0 8px #ff3366;
+            background: linear-gradient(145deg, #ffaabb, #ff4466);
+            -webkit-background-clip: text;
+            background-clip: text;
+            color: transparent;
+        }
+        .shock-status-text.safe {
+            color: #7ef0ba;
+            text-shadow: 0 0 4px #2ecc71;
+            background: linear-gradient(145deg, #b0ffd0, #5fe0a0);
+            -webkit-background-clip: text;
+            background-clip: text;
+            color: transparent;
+        }
+
+        /* 执行器区域 */
+        .actuator-section {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+            gap: 24px;
+            margin-top: 12px;
+            margin-bottom: 30px;
+        }
+        .device-card {
+            text-align: center;
+            display: flex;
+            flex-direction: column;
+            justify-content: space-between;
+        }
+        .device-icon {
+            font-size: 2.8rem;
+            margin-bottom: 12px;
+            color: #0ff;
+            filter: drop-shadow(0 0 6px cyan);
+        }
+        .device-name {
+            font-size: 1.3rem;
+            font-weight: 500;
+            margin: 8px 0;
+        }
+        .btn-group {
+            display: flex;
+            justify-content: center;
+            gap: 18px;
+            margin: 18px 0;
+            flex-wrap: wrap;
+        }
+        .ctrl-btn {
+            background: rgba(20, 30, 45, 0.9);
+            border: 1px solid rgba(0, 255, 255, 0.6);
+            padding: 10px 18px;
+            border-radius: 60px;
+            font-weight: 600;
+            font-size: 0.95rem;
+            color: #d4f1ff;
+            cursor: pointer;
+            transition: all 0.2s cubic-bezier(0.2, 0.9, 0.4, 1.1);
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+            backdrop-filter: blur(4px);
+            font-family: monospace;
+        }
+        .ctrl-btn i {
+            font-size: 1rem;
+        }
+        .ctrl-btn:active {
+            transform: scale(0.96);
+        }
+        .ctrl-btn:hover {
+            background: rgba(0, 200, 255, 0.2);
+            border-color: #0ff;
+            box-shadow: 0 0 12px rgba(0, 255, 255, 0.4);
+            color: white;
+        }
+        .ctrl-btn.disabled, .ctrl-btn:disabled {
+            opacity: 0.4;
+            transform: none;
+            cursor: not-allowed;
+            filter: grayscale(0.2);
+            border-color: rgba(255,255,255,0.2);
+        }
+        .angle-display {
+            margin: 12px auto 0;
+            font-size: 1.1rem;
+            font-family: monospace;
+            background: rgba(0,0,0,0.4);
+            display: inline-block;
+            padding: 6px 14px;
+            border-radius: 40px;
+            border: 1px solid rgba(0,255,255,0.3);
+        }
+        
+        /* 设备状态指示灯样式 */
+        .device-state-row {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            background: rgba(0, 0, 0, 0.35);
+            border-radius: 60px;
+            padding: 6px 14px;
+            margin: 10px 0 6px;
+            font-size: 0.8rem;
+            font-family: monospace;
+            border: 1px solid rgba(0, 255, 255, 0.2);
+        }
+        .state-led-indicator {
+            display: inline-block;
+            width: 12px;
+            height: 12px;
+            border-radius: 50%;
+            background-color: #6c757d;
+            margin-right: 6px;
+            box-shadow: 0 0 2px currentColor;
+            transition: all 0.2s;
+        }
+        .state-led-indicator.on {
+            background-color: #2ecc71;
+            box-shadow: 0 0 8px #2ecc71;
+        }
+        .state-led-indicator.off {
+            background-color: #ff6b6b;
+            box-shadow: 0 0 4px #ff6b6b;
+        }
+        .state-led-indicator.unknown {
+            background-color: #aaa;
+            box-shadow: none;
+        }
+        .state-text {
+            font-weight: 600;
+            letter-spacing: 0.5px;
+        }
+        .state-text.on {
+            color: #7ef0ba;
+            text-shadow: 0 0 2px #2ecc71;
+        }
+        .state-text.off {
+            color: #ffaa88;
+        }
+
+        /* 日志控制台卡片 */
+        .console-card {
+            margin-top: 20px;
+            max-height: 350px;
+            overflow-y: auto;
+            font-family: 'Fira Code', 'Courier New', monospace;
+            font-size: 0.8rem;
+        }
+        .console-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 12px;
+            border-bottom: 1px dashed rgba(0, 255, 255, 0.4);
+            padding-bottom: 8px;
+        }
+        .console-header h3 {
+            font-size: 1.2rem;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+        .clear-log-btn {
+            background: rgba(255, 80, 120, 0.2);
+            border: 1px solid rgba(255, 80, 120, 0.6);
+            padding: 4px 12px;
+            border-radius: 40px;
+            font-size: 0.7rem;
+            cursor: pointer;
+            transition: all 0.2s;
+            color: #ffaa88;
+        }
+        .clear-log-btn:hover {
+            background: rgba(255, 80, 120, 0.4);
+            border-color: #ff6680;
+            color: white;
+        }
+        .log-container {
+            display: flex;
+            flex-direction: column;
+            gap: 6px;
+            max-height: 280px;
+            overflow-y: auto;
+            padding-right: 6px;
+        }
+        .log-entry {
+            padding: 5px 8px;
+            border-left: 3px solid;
+            background: rgba(0, 0, 0, 0.3);
+            border-radius: 6px;
+            font-size: 0.75rem;
+            font-family: monospace;
+            word-break: break-all;
+            white-space: pre-wrap;
+        }
+        .log-info {
+            border-left-color: #0ff;
+            color: #bbf0ff;
+        }
+        .log-warn {
+            border-left-color: #ffaa44;
+            color: #ffdd99;
+        }
+        .log-error {
+            border-left-color: #ff4466;
+            color: #ffaabb;
+        }
+        .log-success {
+            border-left-color: #2ecc71;
+            color: #aaffcc;
+        }
+        .log-time {
+            color: #88aaff;
+            margin-right: 10px;
+            font-size: 0.7rem;
+        }
+
+        .footer-tip {
+            margin-top: 25px;
+            text-align: center;
+            font-size: 0.7rem;
+            opacity: 0.5;
+            font-family: monospace;
+            border-top: 1px solid rgba(0,255,255,0.2);
+            padding-top: 20px;
+            display: flex;
+            justify-content: center;
+            gap: 16px;
+            flex-wrap: wrap;
+        }
+        .footer-tip i.fa-heart {
+            color: #ff99cc;
+        }
+
+        @media (max-width: 680px) {
+            body {
+                padding: 12px;
+            }
+            .data-value {
+                font-size: 2rem;
+            }
+            .shock-status-text {
+                font-size: 1.6rem;
+            }
+            .ctrl-btn {
+                padding: 6px 14px;
+                font-size: 0.8rem;
+            }
+            .header {
+                flex-direction: column;
+                align-items: flex-start;
+            }
+            .title-area h1 {
+                font-size: 1.3rem;
+                flex-wrap: wrap;
+            }
+            .card {
+                padding: 1rem;
+            }
+            .console-card {
+                max-height: 280px;
+            }
+        }
+    </style>
+</head>
+<body>
+<div class="dashboard">
+    <!-- 头部 -->
+    <div class="header">
+        <div class="title-area">
+            <h1>
+                <i class="fas fa-fan"></i> 
+                花花 · 灵枢智控
+                <span class="hua-badge"><i class="fas fa-feather-alt"></i> huahua</span>
+            </h1>
+            <p><i class="fas fa-leaf" style="color:#ff99cc;"></i> 花花专属 · 感知边际 | 实时遥测 + 设备状态镜像</p>
+        </div>
+        <div class="conn-status" id="connStatusWidget">
+            <div class="led-status" id="connLed"></div>
+            <span class="status-text" id="connText">连接中...</span>
+            <i class="fas fa-sync-alt fa-xs" style="opacity:0.6;"></i>
+        </div>
+    </div>
+
+    <!-- 传感器区域 -->
+    <div class="sensor-grid">
+        <!-- 温湿度 -->
+        <div class="card">
+            <div class="sensor-title">
+                <i class="fas fa-temperature-high"></i> 
+                <span>花花 · 温湿度传感</span>
+            </div>
+            <div style="display: flex; justify-content: space-between; align-items: baseline; flex-wrap: wrap; flex:1;">
+                <div>
+                    <span class="data-value" id="tempValue">--</span>
+                    <span class="data-unit">°C</span>
+                </div>
+                <div>
+                    <span class="data-value" id="humiValue">--</span>
+                    <span class="data-unit">%RH</span>
+                </div>
+            </div>
+            <div class="sub-info">
+                <span><i class="fas fa-droplet"></i> DHT11 实时数据</span>
+                <span id="dhtTime">等待数据...</span>
+            </div>
+        </div>
+        <!-- 光照 -->
+        <div class="card">
+            <div class="sensor-title">
+                <i class="fas fa-sun"></i>
+                <span>花花 · 光照强度</span>
+            </div>
+            <div style="flex:1;">
+                <span class="data-value" id="lightValue">--</span>
+                <span class="data-unit">lux</span>
+                <div style="margin-top: 8px;">
+                    <span class="light-badge"><i class="fas fa-chart-line"></i> 环境照度实时流</span>
+                </div>
+            </div>
+            <div class="sub-info">
+                <span><i class="far fa-clock"></i> 最新读数</span>
+                <span id="lightTime">未接收</span>
+            </div>
+        </div>
+        <!-- 天然气传感器 -->
+        <div class="card" id="mq2Card">
+            <div class="sensor-title">
+                <i class="fas fa-flame"></i>
+                <span>花花 · 天然气浓度</span>
+            </div>
+            <div style="flex:1;">
+                <span class="data-value" id="mq2Value">--</span>
+                <span class="data-unit">%LEL</span>
+                <div class="vibration-status-area" style="margin-top: 12px;">
+                    <div class="shock-led" id="fireLed"></div>
+                    <span class="shock-status-text safe" id="fireStatusText">无火焰</span>
+                </div>
+            </div>
+            <div class="sub-info">
+                <span><i class="fas fa-gas-pump"></i> MQ2甲烷检测</span>
+                <span id="mq2Time">未接收</span>
+            </div>
+        </div>
+    </div>
+
+    <!-- 执行器区域 (增加状态展示) -->
+    <div class="actuator-section">
+        <!-- LED灯卡片 + 状态显示 -->
+        <div class="card device-card">
+            <div>
+                <div class="device-icon"><i class="fas fa-lightbulb"></i></div>
+                <div class="device-name">花花 · LED灯</div>
+                <!-- 新增状态显示区域 -->
+                <div class="device-state-row">
+                    <span><i class="fas fa-info-circle"></i> 当前状态</span>
+                    <span>
+                        <span class="state-led-indicator unknown" id="ledStateIndicator"></span>
+                        <span id="ledStateText" class="state-text unknown">未知</span>
+                    </span>
+                </div>
+                <div class="btn-group">
+                    <button class="ctrl-btn" id="ledOnBtn" data-cmd="a"><i class="fas fa-power-off"></i> 开启</button>
+                    <button class="ctrl-btn" id="ledOffBtn" data-cmd="b"><i class="fas fa-ban"></i> 关闭</button>
+                </div>
+            </div>
+            <div class="sub-info" style="justify-content: center;">
+                <i class="fas fa-waveform"></i> 指令: a(开) / b(关)  | 状态主题: huahua/state/led
+            </div>
+        </div>
+        <!-- 蜂鸣器卡片 + 状态显示 -->
+        <div class="card device-card">
+            <div>
+                <div class="device-icon"><i class="fas fa-bell"></i></div>
+                <div class="device-name">花花 · 蜂鸣器</div>
+                <div class="device-state-row">
+                    <span><i class="fas fa-info-circle"></i> 当前状态</span>
+                    <span>
+                        <span class="state-led-indicator unknown" id="buzzerStateIndicator"></span>
+                        <span id="buzzerStateText" class="state-text unknown">未知</span>
+                    </span>
+                </div>
+                <div class="btn-group">
+                    <button class="ctrl-btn" id="buzzerOnBtn" data-cmd="c"><i class="fas fa-volume-up"></i> 鸣响</button>
+                    <button class="ctrl-btn" id="buzzerOffBtn" data-cmd="d"><i class="fas fa-volume-mute"></i> 静音</button>
+                </div>
+            </div>
+            <div class="sub-info" style="justify-content: center;">
+                <i class="fas fa-rss"></i> 指令: c(开) / d(关) | 状态主题: huahua/state/buzzer
+            </div>
+        </div>
+        <!-- 风扇卡片 + 状态显示 -->
+        <div class="card device-card">
+            <div>
+                <div class="device-icon"><i class="fas fa-fan"></i></div>
+                <div class="device-name">花花 · 排风扇</div>
+                <div class="device-state-row">
+                    <span><i class="fas fa-info-circle"></i> 当前档位</span>
+                    <span>
+                        <span class="state-led-indicator unknown" id="fanStateIndicator"></span>
+                        <span id="fanStateText" class="state-text unknown">关闭</span>
+                    </span>
+                </div>
+                <div style="display: flex; justify-content: center; gap: 8px; margin: 12px 0;">
+                    <button class="ctrl-btn" style="padding: 6px 12px; font-size: 0.8rem;" id="fanLevel1Btn" data-cmd="e"><i class="fas fa-wind"></i> 1档</button>
+                    <button class="ctrl-btn" style="padding: 6px 12px; font-size: 0.8rem;" id="fanLevel2Btn" data-cmd="f"><i class="fas fa-wind"></i> 2档</button>
+                    <button class="ctrl-btn" style="padding: 6px 12px; font-size: 0.8rem;" id="fanLevel3Btn" data-cmd="g"><i class="fas fa-wind"></i> 3档</button>
+                    <button class="ctrl-btn" style="padding: 6px 12px; font-size: 0.8rem;" id="fanOffBtn" data-cmd="h"><i class="fas fa-power-off"></i> 关</button>
+                </div>
+            </div>
+            <div class="sub-info" style="justify-content: center;">
+                <i class="fas fa-tachometer-alt"></i> 指令: e(1档)/f(2档)/g(3档)/h(关) | 状态主题: huahua/state/fan
+            </div>
+        </div>
+    </div>
+
+    <!-- 系统控制台 | 实时遥测日志 -->
+    <div class="card console-card">
+        <div class="console-header">
+            <h3><i class="fas fa-terminal"></i> 系统控制台 | 实时遥测日志</h3>
+            <button class="clear-log-btn" id="clearLogBtn"><i class="fas fa-trash-alt"></i> 清空日志</button>
+        </div>
+        <div class="log-container" id="logContainer">
+            <div class="log-entry log-info">
+                <span class="log-time">[--:--:--]</span> 等待系统启动...
+            </div>
+        </div>
+    </div>
+
+    <div class="footer-tip">
+        <span><i class="fas fa-satellite-dish"></i> MQTT 实时隧道 · 数据即时同步</span>
+        <span><i class="fas fa-heart" style="color:#ff99cc;"></i> 花花 · 专属物联中枢 <i class="fas fa-feather-alt"></i></span>
+        <span><i class="fas fa-microchip"></i> 边缘响应 | 零延迟指令 | 设备状态镜像</span>
+    </div>
+</div>
+
+<script>
+    (function() {
+        // MQTT 配置
+        const MQTT_BROKER = 'ws://itmojun.com:8083/mqtt';
+        const TOPIC_DHT11 = 'huahua/sensor/dht11';
+        const TOPIC_LIGHT = 'huahua/sensor/light';
+        const TOPIC_MQ2 = 'huahua/sensor/mq2';
+        const TOPIC_CMD = 'huahua/cmd';
+        // 状态主题
+        const TOPIC_LED_STATE = 'huahua/state/led';
+        const TOPIC_BUZZER_STATE = 'huahua/state/buzzer';
+        const TOPIC_FAN_STATE = 'huahua/state/fan';
+        const TOPIC_FIRE_STATE = 'huahua/state/fire';
+        
+        let mqttClient = null;
+        let isConnected = false;
+        
+        // DOM 元素
+        const connLed = document.getElementById('connLed');
+        const connText = document.getElementById('connText');
+        const tempSpan = document.getElementById('tempValue');
+        const humiSpan = document.getElementById('humiValue');
+        const lightSpan = document.getElementById('lightValue');
+        const mq2Span = document.getElementById('mq2Value');
+        const dhtTimeSpan = document.getElementById('dhtTime');
+        const lightTimeSpan = document.getElementById('lightTime');
+        const mq2TimeSpan = document.getElementById('mq2Time');
+        const fireLed = document.getElementById('fireLed');
+        const fireStatusText = document.getElementById('fireStatusText');
+        const mq2Card = document.getElementById('mq2Card');
+        const ledOnBtn = document.getElementById('ledOnBtn');
+        const ledOffBtn = document.getElementById('ledOffBtn');
+        const buzzerOnBtn = document.getElementById('buzzerOnBtn');
+        const buzzerOffBtn = document.getElementById('buzzerOffBtn');
+        const fanLevel1Btn = document.getElementById('fanLevel1Btn');
+        const fanLevel2Btn = document.getElementById('fanLevel2Btn');
+        const fanLevel3Btn = document.getElementById('fanLevel3Btn');
+        const fanOffBtn = document.getElementById('fanOffBtn');
+        const allCtrlBtns = [ledOnBtn, ledOffBtn, buzzerOnBtn, buzzerOffBtn, fanLevel1Btn, fanLevel2Btn, fanLevel3Btn, fanOffBtn];
+        const logContainer = document.getElementById('logContainer');
+        const clearLogBtn = document.getElementById('clearLogBtn');
+        
+        // 状态UI元素
+        const ledStateIndicator = document.getElementById('ledStateIndicator');
+        const ledStateText = document.getElementById('ledStateText');
+        const buzzerStateIndicator = document.getElementById('buzzerStateIndicator');
+        const buzzerStateText = document.getElementById('buzzerStateText');
+        const fanStateIndicator = document.getElementById('fanStateIndicator');
+        const fanStateText = document.getElementById('fanStateText');
+        
+        // ---------- 日志功能 ----------
+        function addLog(message, type = 'info') {
+            const time = new Date();
+            const timeStr = `${time.getHours().toString().padStart(2,'0')}:${time.getMinutes().toString().padStart(2,'0')}:${time.getSeconds().toString().padStart(2,'0')}.${time.getMilliseconds().toString().padStart(3,'0')}`;
+            const logDiv = document.createElement('div');
+            logDiv.className = `log-entry log-${type}`;
+            logDiv.innerHTML = `<span class="log-time">[${timeStr}]</span> ${message}`;
+            logContainer.appendChild(logDiv);
+            logContainer.scrollTop = logContainer.scrollHeight;
+            while (logContainer.children.length > 300) {
+                logContainer.removeChild(logContainer.firstChild);
+            }
+        }
+        
+        function clearLogs() {
+            logContainer.innerHTML = '';
+            addLog('日志已清空', 'info');
+        }
+        
+        function getCurrentTimeString() {
+            const now = new Date();
+            return `${now.getHours().toString().padStart(2,'0')}:${now.getMinutes().toString().padStart(2,'0')}:${now.getSeconds().toString().padStart(2,'0')}`;
+        }
+        
+        // 更新设备状态UI (灯/蜂鸣器)
+        function updateDeviceStateUI(type, stateValue) {
+            const isOn = (stateValue === 1 || stateValue === '1');
+            if (type === 'led') {
+                if (isOn) {
+                    ledStateIndicator.className = 'state-led-indicator on';
+                    ledStateText.innerText = '开启';
+                    ledStateText.className = 'state-text on';
+                } else {
+                    ledStateIndicator.className = 'state-led-indicator off';
+                    ledStateText.innerText = '关闭';
+                    ledStateText.className = 'state-text off';
+                }
+                addLog(`💡 LED灯状态更新: ${isOn ? '开启' : '关闭'}`, 'info');
+            } else if (type === 'buzzer') {
+                if (isOn) {
+                    buzzerStateIndicator.className = 'state-led-indicator on';
+                    buzzerStateText.innerText = '鸣响中';
+                    buzzerStateText.className = 'state-text on';
+                } else {
+                    buzzerStateIndicator.className = 'state-led-indicator off';
+                    buzzerStateText.innerText = '静音';
+                    buzzerStateText.className = 'state-text off';
+                }
+                addLog(`🔔 蜂鸣器状态更新: ${isOn ? '鸣响中' : '静音'}`, 'info');
+            }
+        }
+        
+        // 更新连接UI
+        function updateConnectionStatusUI(connected) {
+            isConnected = connected;
+            if (connected) {
+                connLed.classList.add('connected');
+                connText.innerText = '花花在线 · 实时';
+                allCtrlBtns.forEach(btn => {
+                    if(btn) {
+                        btn.disabled = false;
+                        btn.classList.remove('disabled');
+                    }
+                });
+                addLog('MQTT 连接成功，中枢在线', 'success');
+            } else {
+                connLed.classList.remove('connected');
+                connText.innerText = '离线 · 重连中';
+                allCtrlBtns.forEach(btn => {
+                    if(btn) {
+                        btn.disabled = true;
+                        btn.classList.add('disabled');
+                    }
+                });
+                addLog('MQTT 连接已断开，尝试重连...', 'warn');
+            }
+        }
+        
+        function updateServoAngleDisplay() {
+            if (servoAngleDisplay) {
+                servoAngleDisplay.innerHTML = `当前角度: ${currentServoAngle}°`;
+            }
+        }
+        
+        function showToast(message, isError = false) {
+            const toast = document.createElement('div');
+            toast.innerText = message;
+            toast.style.position = 'fixed';
+            toast.style.bottom = '20px';
+            toast.style.left = '50%';
+            toast.style.transform = 'translateX(-50%)';
+            toast.style.background = isError ? 'rgba(255, 51, 102, 0.9)' : 'rgba(0, 200, 180, 0.9)';
+            toast.style.backdropFilter = 'blur(8px)';
+            toast.style.border = isError ? '1px solid #ff6666' : '1px solid #0ff';
+            toast.style.borderRadius = '40px';
+            toast.style.padding = '8px 18px';
+            toast.style.fontSize = '0.8rem';
+            toast.style.zIndex = '999';
+            toast.style.color = '#fff';
+            toast.style.fontFamily = 'monospace';
+            toast.style.whiteSpace = 'nowrap';
+            document.body.appendChild(toast);
+            setTimeout(() => toast.remove(), 2000);
+        }
+        
+        function sendCommand(cmdChar, customMsg = null) {
+            if (!mqttClient || !isConnected) {
+                showToast('🌸 花花连接未就绪，指令无法下达', true);
+                addLog(`指令发送失败: 未连接 (${cmdChar})`, 'error');
+                return false;
+            }
+            let cmdDesc = '';
+            if (cmdChar === 'a') cmdDesc = '开灯';
+            else if (cmdChar === 'b') cmdDesc = '关灯';
+            else if (cmdChar === 'c') cmdDesc = '开蜂鸣器';
+            else if (cmdChar === 'd') cmdDesc = '关蜂鸣器';
+            else if (cmdChar === 'e') cmdDesc = '风扇1档';
+            else if (cmdChar === 'f') cmdDesc = '风扇2档';
+            else if (cmdChar === 'g') cmdDesc = '风扇3档';
+            else if (cmdChar === 'h') cmdDesc = '风扇关闭';
+            else cmdDesc = `指令 ${cmdChar}`;
+            
+            mqttClient.publish(TOPIC_CMD, cmdChar, { qos: 0 }, (err) => {
+                if (err) {
+                    console.error(`发布命令 ${cmdChar} 失败`, err);
+                    addLog(`❌ 指令发送失败: ${cmdDesc} - ${err.message}`, 'error');
+                    showToast(`❌ 指令传输失败: ${cmdDesc}`, true);
+                } else {
+                    addLog(`📤 发送指令: ${cmdDesc} (${cmdChar})`, 'success');
+                    let displayMsg = '';
+                    if (cmdChar === 'a') displayMsg = '🔆 开灯';
+                    else if (cmdChar === 'b') displayMsg = '💡 关灯';
+                    else if (cmdChar === 'c') displayMsg = '🔔 蜂鸣器开';
+                    else if (cmdChar === 'd') displayMsg = '🔕 蜂鸣器关';
+                    else if (cmdChar === 'e') displayMsg = '🌀 风扇1档';
+                    else if (cmdChar === 'f') displayMsg = '🌀 风扇2档';
+                    else if (cmdChar === 'g') displayMsg = '🌀 风扇3档';
+                    else if (cmdChar === 'h') displayMsg = '🔄 风扇关闭';
+                    else displayMsg = customMsg || `指令 ${cmdChar}`;
+                    showToast(`🌸 指令已送达 [${displayMsg}]`);
+                }
+            });
+            return true;
+        }
+        
+        function updateFireUI(value) {
+            const isFire = (value === 1 || value === '1');
+            if (isFire) {
+                fireStatusText.innerText = '⚠️ 火焰!!';
+                fireStatusText.className = 'shock-status-text warning';
+                fireLed.classList.add('active');
+                fireLed.classList.remove('inactive');
+                if (mq2Card) flashElement(mq2Card, '#ff3366');
+                fireLed.style.animation = 'pulseRed 0.5s ease-out';
+                setTimeout(() => { if(fireLed) fireLed.style.animation = ''; }, 500);
+            } else {
+                fireStatusText.innerText = '无火焰';
+                fireStatusText.className = 'shock-status-text safe';
+                fireLed.classList.remove('active');
+                fireLed.classList.add('inactive');
+            }
+        }
+        
+        function updateDeviceStateUI(type, stateValue) {
+            const isOn = (stateValue === 1 || stateValue === '1');
+            if (type === 'led') {
+                if (isOn) {
+                    ledStateIndicator.className = 'state-led-indicator on';
+                    ledStateText.innerText = '开启';
+                    ledStateText.className = 'state-text on';
+                } else {
+                    ledStateIndicator.className = 'state-led-indicator off';
+                    ledStateText.innerText = '关闭';
+                    ledStateText.className = 'state-text off';
+                }
+                addLog(`💡 LED灯状态更新: ${isOn ? '开启' : '关闭'}`, 'info');
+            } else if (type === 'buzzer') {
+                if (isOn) {
+                    buzzerStateIndicator.className = 'state-led-indicator on';
+                    buzzerStateText.innerText = '鸣响中';
+                    buzzerStateText.className = 'state-text on';
+                } else {
+                    buzzerStateIndicator.className = 'state-led-indicator off';
+                    buzzerStateText.innerText = '静音';
+                    buzzerStateText.className = 'state-text off';
+                }
+                addLog(`🔔 蜂鸣器状态更新: ${isOn ? '鸣响中' : '静音'}`, 'info');
+            } else if (type === 'fan') {
+                const level = parseInt(stateValue);
+                if (level > 0) {
+                    fanStateIndicator.className = 'state-led-indicator on';
+                    fanStateText.innerText = `${level}档`;
+                    fanStateText.className = 'state-text on';
+                } else {
+                    fanStateIndicator.className = 'state-led-indicator off';
+                    fanStateText.innerText = '关闭';
+                    fanStateText.className = 'state-text off';
+                }
+                addLog(`🌀 风扇状态更新: ${level > 0 ? level + '档' : '关闭'}`, 'info');
+            }
+        }
+        
+        function handleSensorMessage(topic, payloadStr) {
+            const timeStr = getCurrentTimeString();
+            if (topic === TOPIC_DHT11) {
+                const trimmed = payloadStr.trim();
+                const parts = trimmed.split('_');
+                if (parts.length >= 2) {
+                    let tempRaw = parts[0].trim();
+                    let humRaw = parts[1].trim();
+                    const tempNum = parseFloat(tempRaw);
+                    const humNum = parseFloat(humRaw);
+                    if (!isNaN(tempNum)) tempSpan.innerText = tempNum.toFixed(1);
+                    else tempSpan.innerText = tempRaw;
+                    if (!isNaN(humNum)) humiSpan.innerText = humNum.toFixed(1);
+                    else humiSpan.innerText = humRaw;
+                    dhtTimeSpan.innerHTML = `<i class="far fa-clock"></i> ${timeStr}`;
+                    flashElement(tempSpan.parentElement.parentElement, '#0ff');
+                    addLog(`📊 DHT11: 温度=${tempSpan.innerText}°C, 湿度=${humiSpan.innerText}%`, 'info');
+                } else {
+                    addLog(`⚠️ DHT11 格式异常: ${payloadStr}`, 'warn');
+                }
+            } 
+            else if (topic === TOPIC_LIGHT) {
+                let lightVal = payloadStr.trim();
+                let lightNum = parseInt(lightVal, 10);
+                if (!isNaN(lightNum)) lightSpan.innerText = lightNum;
+                else lightSpan.innerText = lightVal;
+                lightTimeSpan.innerHTML = `<i class="far fa-clock"></i> ${timeStr}`;
+                flashElement(lightSpan.parentElement.parentElement, '#ffb347');
+                addLog(`☀️ 光照: ${lightSpan.innerText} lux`, 'info');
+            }
+            else if (topic === TOPIC_MQ2) {
+                let mq2Val = payloadStr.trim();
+                let mq2Num = parseFloat(mq2Val);
+                if (!isNaN(mq2Num)) mq2Span.innerText = mq2Num.toFixed(2);
+                else mq2Span.innerText = mq2Val;
+                mq2TimeSpan.innerHTML = `<i class="far fa-clock"></i> ${timeStr}`;
+                flashElement(mq2Card, '#ff66aa');
+                addLog(`🔥 天然气: ${mq2Span.innerText} %LEL`, 'info');
+            }
+            // 处理LED状态反馈
+            else if (topic === TOPIC_LED_STATE) {
+                let stateVal = payloadStr.trim();
+                updateDeviceStateUI('led', stateVal);
+                flashElement(document.getElementById('ledStateIndicator'), '#2ecc71');
+            }
+            // 处理蜂鸣器状态反馈
+            else if (topic === TOPIC_BUZZER_STATE) {
+                let stateVal = payloadStr.trim();
+                updateDeviceStateUI('buzzer', stateVal);
+                flashElement(document.getElementById('buzzerStateIndicator'), '#2ecc71');
+            }
+            // 处理风扇状态反馈
+            else if (topic === TOPIC_FAN_STATE) {
+                let stateVal = payloadStr.trim();
+                updateDeviceStateUI('fan', stateVal);
+                flashElement(document.getElementById('fanStateIndicator'), '#2ecc71');
+            }
+            // 处理火焰状态反馈
+            else if (topic === TOPIC_FIRE_STATE) {
+                let stateVal = payloadStr.trim();
+                updateFireUI(stateVal);
+                addLog(`🔥 火焰状态: ${stateVal === '1' ? '检测到火焰!' : '正常'}`, stateVal === '1' ? 'warn' : 'info');
+            }
+        }
+        
+        function flashElement(el, colorHex) {
+            if (!el) return;
+            const originalBorder = el.style.borderColor;
+            const originalBoxShadow = el.style.boxShadow;
+            el.style.transition = 'box-shadow 0.1s, border-color 0.1s';
+            el.style.boxShadow = `0 0 16px ${colorHex}, inset 0 0 6px ${colorHex}`;
+            el.style.borderColor = colorHex;
+            setTimeout(() => {
+                if (el) {
+                    el.style.boxShadow = originalBoxShadow;
+                    el.style.borderColor = originalBorder;
+                }
+            }, 200);
+        }
+        
+        function subscribeTopics() {
+            if (!mqttClient || !isConnected) return;
+            const topics = [TOPIC_DHT11, TOPIC_LIGHT, TOPIC_MQ2, TOPIC_LED_STATE, TOPIC_BUZZER_STATE, TOPIC_FAN_STATE, TOPIC_FIRE_STATE];
+            topics.forEach(topic => {
+                mqttClient.subscribe(topic, { qos: 0 }, (err) => {
+                    if (err) {
+                        console.error(`订阅主题失败 ${topic}`, err);
+                        addLog(`❌ 订阅失败: ${topic} - ${err.message}`, 'error');
+                    } else {
+                        console.log(`✅ 订阅成功: ${topic}`);
+                        addLog(`✅ 订阅成功: ${topic}`, 'success');
+                    }
+                });
+            });
+        }
+        
+        function initMqttConnection() {
+            const clientId = `huahua_terminal_${Math.random().toString(16).substr(2, 8)}_${Date.now()}`;
+            const options = {
+                keepalive: 60,
+                clean: true,
+                connectTimeout: 10000,
+                clientId: clientId,
+                protocolVersion: 4,
+                reconnectPeriod: 3000,
+            };
+            
+            mqttClient = mqtt.connect(MQTT_BROKER, options);
+            addLog(`🔌 正在连接 MQTT 代理: ${MQTT_BROKER}`, 'info');
+            
+            mqttClient.on('connect', () => {
+                console.log('MQTT 连接成功!');
+                updateConnectionStatusUI(true);
+                subscribeTopics();
+            });
+            
+            mqttClient.on('message', (topic, message) => {
+                let msgStr = message.toString().trim();
+                if (!msgStr) return;
+                console.log(`📡 收到 [${topic}] : ${msgStr}`);
+                handleSensorMessage(topic, msgStr);
+            });
+            
+            mqttClient.on('error', (err) => {
+                console.error('MQTT 错误:', err);
+                addLog(`❌ MQTT 错误: ${err.message}`, 'error');
+                updateConnectionStatusUI(false);
+            });
+            
+            mqttClient.on('reconnect', () => {
+                console.log('MQTT 重连...');
+                addLog('🔄 MQTT 正在重连...', 'warn');
+                connText.innerText = '重连中...';
+                connLed.classList.remove('connected');
+                isConnected = false;
+                allCtrlBtns.forEach(btn => { if(btn) btn.disabled = true; });
+            });
+            
+            mqttClient.on('offline', () => {
+                updateConnectionStatusUI(false);
+                addLog('📴 MQTT 离线', 'warn');
+            });
+            
+            mqttClient.on('close', () => {
+                updateConnectionStatusUI(false);
+                addLog('🔒 MQTT 连接已关闭', 'warn');
+            });
+        }
+        
+        function bindControlEvents() {
+            if (ledOnBtn) ledOnBtn.addEventListener('click', (e) => { e.preventDefault(); sendCommand('a'); });
+            if (ledOffBtn) ledOffBtn.addEventListener('click', (e) => { e.preventDefault(); sendCommand('b'); });
+            if (buzzerOnBtn) buzzerOnBtn.addEventListener('click', (e) => { e.preventDefault(); sendCommand('c'); });
+            if (buzzerOffBtn) buzzerOffBtn.addEventListener('click', (e) => { e.preventDefault(); sendCommand('d'); });
+            if (fanLevel1Btn) fanLevel1Btn.addEventListener('click', (e) => { e.preventDefault(); sendCommand('e'); });
+            if (fanLevel2Btn) fanLevel2Btn.addEventListener('click', (e) => { e.preventDefault(); sendCommand('f'); });
+            if (fanLevel3Btn) fanLevel3Btn.addEventListener('click', (e) => { e.preventDefault(); sendCommand('g'); });
+            if (fanOffBtn) fanOffBtn.addEventListener('click', (e) => { e.preventDefault(); sendCommand('h'); });
+            if (clearLogBtn) clearLogBtn.addEventListener('click', () => clearLogs());
+        }
+        
+        function setInitialButtonsDisabled() {
+            allCtrlBtns.forEach(btn => {
+                if(btn) {
+                    btn.disabled = true;
+                    btn.classList.add('disabled');
+                }
+            });
+            // 火焰LED初始化
+            if(fireLed) {
+                fireLed.classList.add('inactive');
+                fireLed.classList.remove('active');
+            }
+            if(fireStatusText) {
+                fireStatusText.innerText = '无火焰';
+                fireStatusText.className = 'shock-status-text safe';
+            }
+            if(mq2TimeSpan) mq2TimeSpan.innerHTML = '等待数据...';
+            // 初始状态显示未知
+            if(ledStateIndicator) ledStateIndicator.className = 'state-led-indicator unknown';
+            if(ledStateText) { ledStateText.innerText = '未知'; ledStateText.className = 'state-text unknown'; }
+            if(buzzerStateIndicator) buzzerStateIndicator.className = 'state-led-indicator unknown';
+            if(buzzerStateText) { buzzerStateText.innerText = '未知'; buzzerStateText.className = 'state-text unknown'; }
+            if(fanStateIndicator) fanStateIndicator.className = 'state-led-indicator unknown';
+            if(fanStateText) { fanStateText.innerText = '关闭'; fanStateText.className = 'state-text unknown'; }
+        }
+        
+        function disconnectMqtt() {
+            if (mqttClient && (mqttClient.connected || mqttClient.reconnecting)) {
+                mqttClient.end(true, () => {});
+                addLog('🔌 主动断开 MQTT 连接', 'info');
+            }
+        }
+        
+        window.addEventListener('beforeunload', () => {
+            disconnectMqtt();
+        });
+        
+        function startApp() {
+            setInitialButtonsDisabled();
+            bindControlEvents();
+            initMqttConnection();
+            addLog('🌸 花花智控中心启动，实时遥测日志已开启 + 设备状态镜像订阅', 'success');
+        }
+        
+        startApp();
+    })();
+</script>
+</body>
+</html>
