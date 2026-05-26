@@ -79,7 +79,7 @@ https://my.feishu.cn/wiki/HiPEwZ37XiitnwktX13cEM5KnSb
 
 - **IDE**：Keil MDK-ARM / VS Code
 - **编译器**：ARM GCC / ARMCC
-- **芯片**：STM32F103C8Tx
+- **芯片**：STM32F103CBTx
 
 ## 🚀 快速开始
 
