@@ -34,6 +34,9 @@ extern "C" {
 void MQ2_Init(void);
 float MQ2_ReadPPM(void);
 uint16_t MQ2_ReadRawADC(void);
+uint8_t MQ2_IsReady(void);           // 传感器是否就绪
+uint8_t MQ2_GetState(void);          // 获取传感器状态
+float MQ2_StabilityCheck(void);      // 稳定性检测（返回PPM波动值）
 /* USER CODE END Prototypes */
 
 #ifdef __cplusplus

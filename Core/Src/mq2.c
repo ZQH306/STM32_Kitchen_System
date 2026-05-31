@@ -1,6 +1,10 @@
 #include "mq2.h"
 #include "adc.h"
+#include "main.h"
 #include <math.h>
+
+static uint8_t mq2_ready = 0;     // 传感器就绪标志：0=未就绪，1=就绪
+static uint8_t mq2_state = 0;      // 传感器状态：0=预热中，1=正常，2=异常
 
 /**
 将ADC值转换为电压值
@@ -30,12 +34,24 @@ static float MQ2_GetResistance(float voltage)
 
 void MQ2_Init(void)
 {
-    // ADC已经在系统中初始化，这里只需确保MQ2的ADC通道已配置
-    // MQ2传感器需要预热1-2分钟才能稳定，这里进行充分预热
+    mq2_ready = 0;
+    mq2_state = SYS_STATE_PREHEAT;
+
     for(int i = 0; i < 60; i++)
     {
         MQ2_ReadRawADC();
-        HAL_Delay(100);  // 6秒预热足够，1000ms太长
+        HAL_Delay(100);
+    }
+
+    float stability = MQ2_StabilityCheck();
+    if(stability < 0.0f || stability > (float)MQ2_STABILITY_THRESHOLD)
+    {
+        mq2_ready = 1;
+        mq2_state = SYS_STATE_READY;
+    }
+    else
+    {
+        mq2_state = SYS_STATE_ERROR;
     }
 }
 
@@ -116,4 +132,40 @@ float MQ2_ReadPPM(void)
     float ppm = MQ2_ConvertToPPM(adc_value);
 
     return ppm;
+}
+
+uint8_t MQ2_IsReady(void)
+{
+    return mq2_ready;
+}
+
+uint8_t MQ2_GetState(void)
+{
+    return mq2_state;
+}
+
+float MQ2_StabilityCheck(void)
+{
+    float samples[MQ2_STABILITY_SAMPLES];
+    float sum = 0.0f;
+    float min_val = 99999.0f, max_val = 0.0f;
+
+    for(int i = 0; i < MQ2_STABILITY_SAMPLES; i++)
+    {
+        samples[i] = MQ2_ReadPPM();
+        sum += samples[i];
+        if(samples[i] < min_val) min_val = samples[i];
+        if(samples[i] > max_val) max_val = samples[i];
+        HAL_Delay(200);
+    }
+
+    float avg = sum / (float)MQ2_STABILITY_SAMPLES;
+    float range = max_val - min_val;
+
+    if(avg > 10000.0f || avg < 0.0f)
+    {
+        return -1.0f;
+    }
+
+    return range;
 }

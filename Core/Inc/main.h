@@ -47,6 +47,16 @@ extern "C" {
 /* Exported macro ------------------------------------------------------------*/
 /* USER CODE BEGIN EM */
 
+/* 系统状态标志位 */
+#define SYS_STATE_PREHEAT     0   // MQ2预热中，报警屏蔽
+#define SYS_STATE_READY       1   // 传感器就绪，正常监测
+#define SYS_STATE_ERROR        2   // 传感器异常
+
+/* MQ2预热配置 */
+#define MQ2_PREHEAT_TIME_SEC  6    // 预热时间（秒）
+#define MQ2_STABILITY_SAMPLES 5    // 稳定性判断采样次数
+#define MQ2_STABILITY_THRESHOLD 50 // PPM波动阈值
+
 /* USER CODE END EM */
 
 /* Exported functions prototypes ---------------------------------------------*/

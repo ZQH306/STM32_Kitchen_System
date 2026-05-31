@@ -30,20 +30,13 @@ static const uint16_t fan_duty_cycles[] = {
   */
 void Fan_Init(void)
 {
-    fan_level = FAN_OFF;           /* 初始化为关闭状态 */
-    fan_alarm_mode = 0;            /* 初始化为正常模式 */
-    
-    /* 风扇方向固定为向外排风（逆时针），设置方向控制引脚 PA5 = 1 */
+    fan_level = FAN_OFF;
+    fan_alarm_mode = 0;
+
     HAL_GPIO_WritePin(GPIOA, GPIO_PIN_5, GPIO_PIN_SET);
-    
-    /* 
-     * 启动 PWM 设为 100% 占空比（H桥反转 = 0% 功率 = 风扇关闭）。
-     * 绝不能 HAL_TIM_PWM_Stop —— PB8 LOW = 0% PWM → H桥反转 = 100% 功率 = 全速！
-     */
+
     __HAL_TIM_SetCompare(&htim4, TIM_CHANNEL_3, FAN_PWM_ARR);
     HAL_TIM_PWM_Start(&htim4, TIM_CHANNEL_3);
-    
-    fan_level = FAN_OFF;
 }
 
 /**

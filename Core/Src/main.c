@@ -111,27 +111,35 @@ int main(void)
   MX_TIM2_Init();
   MX_TIM4_Init();  // 初始化TIM4（用于风扇PWM）
   /* USER CODE BEGIN 2 */
+    // 【重要】GPIO初始化后立即关闭LED，防止后续延迟期间误亮
+    HAL_GPIO_WritePin(LED1_GPIO_Port, LED1_Pin, GPIO_PIN_RESET);
+    HAL_GPIO_WritePin(LED2_GPIO_Port, LED2_Pin, GPIO_PIN_SET);
+
     HAL_ADCEx_Calibration_Start(&hadc1);
     ADC_DMA_Init(); // 初始化ADC DMA
     DHT11_Init();
 
-    // 初始化气体传感器
-    MQ2_Init();
-    Light_Init();
+    // 风扇初始化必须在MQ2_Init()之前（后者有6秒延迟，PB8无PWM=风扇全速转）
     Fan_Init();  // 初始化风扇驱动
+
+    // OLED/Light提前初始化，供MQ2预热期间显示开机画面
+    Light_Init();
     OLED_Init();
     OLED_Clear();
 
-    // 关闭LED（确保开机时不亮）
+    // 先启动开机画面和音乐（非阻塞/部分阻塞），让用户立即看到反馈
+    OLED_ShowOpen();           // 显示开机Logo/画面
+    Classic_Startup_Music();   // 播放小星星开机音乐
+
+    // 初始化气体传感器（6秒预热+稳定性检测）
+    // 此时屏幕已有内容、音乐已播，用户不会感知到这6秒空白
+    MQ2_Init();
+
+    OLED_Clear();
+
+    // 确保LED关闭，进入就绪状态
     HAL_GPIO_WritePin(LED1_GPIO_Port, LED1_Pin, GPIO_PIN_RESET);
     HAL_GPIO_WritePin(LED2_GPIO_Port, LED2_Pin, GPIO_PIN_SET);
-
-    // 显示开机画面10秒
-//    OLED_ShowOpen();
-//    Classic_Startup_Music();  // 播放小星星开机音乐
-//    HAL_Delay(10000);
-//    OLED_Clear();
-
 
     // 串口接收中断在usart.c中初始化
   /* USER CODE END 2 */
@@ -149,8 +157,50 @@ int main(void)
     uint8_t led_state = 0;
     // static uint8_t last_fire_state = 0;  // 记录上一次的火灾状态（暂时禁用）
 
+    // 首次进入主循环：上报自检结果和上线消息（仅执行一次）
+    static uint8_t first_entry = 1;
+
+    // 系统稳定门控：前N次循环内屏蔽所有报警（防止上电瞬间误触发）
+    static uint8_t system_ready = 0;
+    static uint8_t warmup_count = 0;
+    #define SYSTEM_WARMUP_CYCLES  3   // 前3次循环(约6秒)屏蔽报警
+
   while (1)
   {
+        if(first_entry)
+        {
+            first_entry = 0;
+
+            // 上报自检结果到云端
+            uint16_t selftest_len;
+            if(MQ2_IsReady())
+            {
+                selftest_len = sprintf(upload_data, "%s/selftest MQ2_OK\n", DEVICE_ID);
+            }
+            else
+            {
+                selftest_len = sprintf(upload_data, "%s/selftest MQ2_ERR_state%d\n", DEVICE_ID, MQ2_GetState());
+            }
+            HAL_UART_Transmit(&huart2, (uint8_t*)upload_data, selftest_len, UART_TIMEOUT_DATA);
+
+            // 系统启动完成，发送上线消息到云端
+            uint16_t startup_len = sprintf(upload_data, "%s/system online\n", DEVICE_ID);
+            HAL_UART_Transmit(&huart2, (uint8_t*)upload_data, startup_len, UART_TIMEOUT_DATA);
+        }
+
+        // 系统暖机计数：前N次循环屏蔽所有警报
+        if(!system_ready)
+        {
+            warmup_count++;
+            if(warmup_count >= SYSTEM_WARMUP_CYCLES)
+            {
+                system_ready = 1;
+                // 暖机完成，上报
+                uint16_t ready_len = sprintf(upload_data, "%s/system ready\n", DEVICE_ID);
+                HAL_UART_Transmit(&huart2, (uint8_t*)upload_data, ready_len, UART_TIMEOUT_DATA);
+            }
+        }
+
         uint16_t len;  // 串口传输长度
 
         // 采集温湿度（最多重试3次）
@@ -202,7 +252,10 @@ int main(void)
         fire_state = !HAL_GPIO_ReadPin(FIRE_GPIO_Port, FIRE_Pin);
 
         // 警报检测和控制逻辑：有火焰或气体超标时触发警报
-        uint8_t alarm_trigger = fire_state || (mq2_ppm > GAS_THRESHOLD_MQ2);
+        // 门控保护1：MQ2传感器未就绪时，屏蔽气体超限报警（防止预热期误触发）
+        // 门控保护2：系统暖机未完成时，屏蔽所有警报（防止上电瞬间误触发）
+        uint8_t mq2_alarm = MQ2_IsReady() && (mq2_ppm > GAS_THRESHOLD_MQ2);
+        uint8_t alarm_trigger = system_ready && (fire_state || mq2_alarm);
         uint8_t manual_mode = Get_Key_Override();  // 获取手动控制模式状态
 
         if(alarm_trigger)
