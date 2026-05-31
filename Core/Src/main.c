@@ -153,11 +153,23 @@ int main(void)
   {
         uint16_t len;  // 串口传输长度
 
-        // 采集温湿度
-        if(DHT11_Get(&temp, &humi) == 0)  //返回值为0代表成功
+        // 采集温湿度（最多重试3次）
+        uint8_t dht11_retry = 0;
+        uint8_t dht11_result = 1;
+        for(dht11_retry = 0; dht11_retry < 3; dht11_retry++)
         {
-            //采集成功，上传云端
+            dht11_result = DHT11_Get(&temp, &humi);
+            if(dht11_result == 0) break;
+            HAL_Delay(100);
+        }
+        if(dht11_result == 0)
+        {
             len = sprintf(upload_data, "%s/sensor/dht11 %.1f_%u\n", DEVICE_ID, temp, humi);
+            HAL_UART_Transmit(&huart2, (uint8_t*)upload_data, len, UART_TIMEOUT_DATA);
+        }
+        else
+        {
+            len = sprintf(upload_data, "%s/sensor/dht11 ERR_ERR\n", DEVICE_ID);
             HAL_UART_Transmit(&huart2, (uint8_t*)upload_data, len, UART_TIMEOUT_DATA);
         }
 
